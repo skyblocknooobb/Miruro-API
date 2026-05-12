@@ -1,6 +1,6 @@
 import base64, json, gzip, httpx, os
-from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
 from dotenv import load_dotenv
@@ -999,7 +999,7 @@ async def get_watch_sources(provider: str, anilist_id: int, category: str, slug:
     data = await _fetch_raw_episodes(anilist_id)
     prov_data = data.get("providers", {}).get(provider, {})
     ep_list = prov_data.get("episodes", {}).get(category, [])
-    
+
     # Resolve the slug back to the original ID
     target_id = None
     for ep in ep_list:
@@ -1014,3 +1014,22 @@ async def get_watch_sources(provider: str, anilist_id: int, category: str, slug:
         raise HTTPException(status_code=404, detail=f"Episode slug '{slug}' not found for provider {provider}")
         
     return await get_sources(episodeId=target_id, provider=provider, anilistId=anilist_id, category=category)
+
+@app.get("/proxy/stream")
+async def proxy_stream(url: str, request: Request):
+    """Proxy HLS stream URLs to bypass CORS restrictions in browsers."""
+    headers = {
+        "Referer": "https://kwik.si/",
+        "Origin": "https://kwik.si",
+        "User-Agent": "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36",
+    }
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        r = await client.get(url, headers=headers)
+    return Response(
+        content=r.content,
+        media_type=r.headers.get("content-type", "application/vnd.apple.mpegurl"),
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "*",
+        },
+    )
